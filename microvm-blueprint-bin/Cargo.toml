@@ -1,0 +1,10 @@
+[package]
+name = "microvm-blueprint-bin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum.workspace = true
+microvm-blueprint-lib = { path = "../microvm-blueprint-lib" }
+serde.workspace = true
+tokio.workspace = true
