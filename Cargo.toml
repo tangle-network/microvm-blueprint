@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "microvm-runtime",
   "microvm-blueprint-lib",
   "microvm-blueprint-bin",
 ]

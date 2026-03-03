@@ -6088,6 +6088,7 @@ version = "0.1.0"
 dependencies = [
  "blueprint-sdk",
  "microvm-blueprint-lib",
+ "microvm-runtime",
  "tokio",
  "tracing-subscriber 0.3.22",
 ]
@@ -6098,10 +6099,19 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "blueprint-sdk",
+ "microvm-runtime",
  "serde",
- "thiserror 1.0.69",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "microvm-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

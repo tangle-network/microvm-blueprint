@@ -7,7 +7,6 @@ use blueprint_sdk::macros::debug_job;
 use blueprint_sdk::tangle::extract::{TangleArg, TangleResult};
 
 use crate::errors::BlueprintError;
-use crate::provider::VmProvider;
 use crate::vm_provider;
 
 /// Maximum allowed byte length for identifiers (VM IDs, snapshot IDs).

@@ -5,8 +5,12 @@ edition = "2024"
 
 [dependencies]
 blueprint-sdk = { workspace = true, features = ["std", "tangle", "macros"] }
+microvm-runtime = { path = "../microvm-runtime" }
 axum = { workspace = true }
 serde = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+
+[features]
+default = []
+firecracker = ["microvm-runtime/firecracker"]

@@ -8,23 +8,30 @@
 
 ## Components
 
+### `microvm-runtime`
+
+- `provider.rs`:
+  - `VmProvider` trait — state-changing lifecycle contract.
+  - `VmQuery` trait — read-only query contract.
+  - `VmRuntime` trait object boundary (`VmProvider + VmQuery`).
+- `adapters/in_memory.rs`: deterministic in-memory adapter for development and tests.
+- `adapters/firecracker.rs` (feature-gated): Firecracker process lifecycle via unix socket API (create/configure/start/pause/resume/snapshot/destroy).
+- `model.rs`: shared read model (`VmView`, `VmStatus`).
+- `error.rs`: shared runtime error model (`VmRuntimeError`).
+
 ### `microvm-blueprint-lib`
 
 - `jobs.rs`: Async job functions (`create_vm`, `start_vm`, `stop_vm`, `snapshot_vm`, `destroy_vm`) with `TangleArg`/`TangleResult` extractors and `#[debug_job]` macro. Job ID constants (`JOB_CREATE` through `JOB_DESTROY`) map to on-chain Tangle service manager indices.
-- `provider.rs`:
-  - `VmProvider` trait — state-changing operations (for lifecycle job execution).
-  - `VmQuery` trait — read-only query port.
-  - `InMemoryVmProvider` — in-memory adapter implementing both ports for development.
+- `provider.rs`: compatibility re-exports from `microvm-runtime`.
 - `query.rs`: `QueryService` implementing `BackgroundService` — spawns an axum HTTP server for read-only query endpoints.
-- `model.rs`: Shared read model (`VmView`, `VmStatus`).
-- `errors.rs`: Shared error model (`BlueprintError`).
+- `model.rs` and `errors.rs`: compatibility re-exports from `microvm-runtime`.
 - `lib.rs`: Exports `router()` function that wires all job functions with `TangleLayer`, plus `init_provider`/`vm_provider` for global provider access.
 
 ### `microvm-blueprint-bin`
 
 - Loads `BlueprintEnvironment` and connects to Tangle.
 - Creates `TangleProducer`/`TangleConsumer` for on-chain job polling and result submission.
-- Initializes the in-memory VM provider via `init_provider`.
+- Initializes a VM runtime provider via `init_provider` (in-memory by default; Firecracker feature-gated).
 - Runs `BlueprintRunner::builder()` with:
   - `router()` from the lib crate (job dispatch)
   - `QueryService` as a background service (HTTP query endpoints)
@@ -41,7 +48,7 @@
 
 ## Extending to production
 
-- Replace `InMemoryVmProvider` with a real hypervisor adapter (Firecracker, Cloud Hypervisor).
+- Add jailer/cgroup/network/vsock orchestration to `FirecrackerVmProvider` for production isolation.
 - Persist lifecycle state in a durable store.
 - Add authn/authz and observability around query endpoints.
 - Add retries/idempotency keys and timeout policies per job type.

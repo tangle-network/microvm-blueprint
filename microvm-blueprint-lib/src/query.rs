@@ -7,18 +7,18 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
+    Json, Router as AxumRouter,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router as AxumRouter,
 };
 use blueprint_sdk::runner::BackgroundService;
 use blueprint_sdk::runner::error::RunnerError;
 use serde::Serialize;
 use tokio::sync::oneshot::{self, Receiver};
 
-use crate::provider::{InMemoryVmProvider, VmQuery};
+use crate::provider::VmRuntime;
 use crate::vm_provider;
 
 #[derive(Debug, Serialize)]
@@ -73,17 +73,14 @@ async fn health() -> &'static str {
     "ok"
 }
 
-async fn list_vms(State(provider): State<Arc<InMemoryVmProvider>>) -> Response {
+async fn list_vms(State(provider): State<Arc<dyn VmRuntime>>) -> Response {
     match provider.list_vms() {
         Ok(vms) => Json(vms).into_response(),
         Err(e) => internal_error(e.to_string()),
     }
 }
 
-async fn get_vm(
-    Path(vm_id): Path<String>,
-    State(provider): State<Arc<InMemoryVmProvider>>,
-) -> Response {
+async fn get_vm(Path(vm_id): Path<String>, State(provider): State<Arc<dyn VmRuntime>>) -> Response {
     match provider.get_vm(&vm_id) {
         Ok(Some(vm)) => Json(vm).into_response(),
         Ok(None) => not_found(format!("vm '{vm_id}' not found")),
@@ -93,7 +90,7 @@ async fn get_vm(
 
 async fn list_snapshots(
     Path(vm_id): Path<String>,
-    State(provider): State<Arc<InMemoryVmProvider>>,
+    State(provider): State<Arc<dyn VmRuntime>>,
 ) -> Response {
     match provider.list_snapshots(&vm_id) {
         Ok(Some(snapshots)) => Json(snapshots).into_response(),

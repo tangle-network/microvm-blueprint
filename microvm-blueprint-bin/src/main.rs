@@ -14,13 +14,16 @@ use blueprint_sdk::tangle::{TangleConsumer, TangleProducer};
 use blueprint_sdk::{error, info};
 
 use microvm_blueprint_lib::{
-    init_provider, router, InMemoryVmProvider, QueryService, JOB_CREATE, JOB_DESTROY,
-    JOB_SNAPSHOT, JOB_START, JOB_STOP,
+    JOB_CREATE, JOB_DESTROY, JOB_SNAPSHOT, JOB_START, JOB_STOP, QueryService, VmRuntime,
+    init_provider, router,
 };
+#[cfg(feature = "firecracker")]
+use microvm_runtime::FirecrackerVmProvider;
+use microvm_runtime::InMemoryVmProvider;
 
 /// Initialize tracing from RUST_LOG env var.
 fn setup_log() {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt};
     let filter = EnvFilter::from_default_env();
     fmt().with_env_filter(filter).init();
 }
@@ -30,12 +33,33 @@ fn setup_log() {
 async fn main() -> Result<(), blueprint_sdk::Error> {
     setup_log();
 
-    // Initialize the in-memory VM provider.
-    // Swap for a hypervisor-backed adapter (Firecracker, Cloud Hypervisor) in production.
-    let provider = Arc::new(InMemoryVmProvider::default());
+    // Initialize VM provider from env. Defaults to in-memory for local/dev.
+    let provider_kind = std::env::var("MICROVM_PROVIDER")
+        .unwrap_or_else(|_| "in-memory".to_string())
+        .to_lowercase();
+    let provider: Arc<dyn VmRuntime> = match provider_kind.as_str() {
+        "in-memory" | "memory" => Arc::new(InMemoryVmProvider::default()),
+        "firecracker" => {
+            #[cfg(feature = "firecracker")]
+            {
+                Arc::new(FirecrackerVmProvider::from_env())
+            }
+            #[cfg(not(feature = "firecracker"))]
+            {
+                return Err(blueprint_sdk::Error::Other(
+                    "MICROVM_PROVIDER=firecracker requires --features firecracker".to_string(),
+                ));
+            }
+        }
+        other => {
+            return Err(blueprint_sdk::Error::Other(format!(
+                "Unknown MICROVM_PROVIDER '{other}' (expected in-memory or firecracker)"
+            )));
+        }
+    };
     init_provider(provider);
 
-    info!("Starting microvm-blueprint");
+    info!(provider = %provider_kind, "Starting microvm-blueprint");
 
     let env = BlueprintEnvironment::load()?;
 
