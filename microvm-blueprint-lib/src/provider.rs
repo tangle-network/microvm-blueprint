@@ -17,17 +17,32 @@ use crate::{
 
 /// State-changing operations on microVMs, executed by lifecycle jobs.
 pub trait VmProvider: Send + Sync + 'static {
+    /// Provision a new microVM. Fails if `vm_id` is already in use.
     fn create_vm(&self, vm_id: &str) -> BlueprintResult<()>;
+
+    /// Start a created or stopped microVM. Fails if already running or destroyed.
     fn start_vm(&self, vm_id: &str) -> BlueprintResult<()>;
+
+    /// Stop a running microVM. Fails if not currently running.
     fn stop_vm(&self, vm_id: &str) -> BlueprintResult<()>;
+
+    /// Capture the state of a microVM as a named snapshot.
+    /// Fails if the VM is destroyed or the snapshot name already exists.
     fn snapshot_vm(&self, vm_id: &str, snapshot_id: &str) -> BlueprintResult<()>;
+
+    /// Tear down a microVM. Terminal state — cannot be restarted.
     fn destroy_vm(&self, vm_id: &str) -> BlueprintResult<()>;
 }
 
 /// Read-only queries against microVM state, used by query surfaces.
 pub trait VmQuery: Send + Sync + 'static {
+    /// Return all known VMs, sorted by identifier.
     fn list_vms(&self) -> BlueprintResult<Vec<VmView>>;
+
+    /// Return a single VM by identifier, or `None` if it does not exist.
     fn get_vm(&self, vm_id: &str) -> BlueprintResult<Option<VmView>>;
+
+    /// Return the snapshot names for a VM, or `None` if the VM does not exist.
     fn list_snapshots(&self, vm_id: &str) -> BlueprintResult<Option<Vec<String>>>;
 }
 
@@ -86,14 +101,9 @@ impl VmProvider for InMemoryVmProvider {
                 record.status = VmStatus::Running;
                 Ok(())
             }
-            VmStatus::Running => Err(BlueprintError::InvalidTransition {
+            other => Err(BlueprintError::InvalidTransition {
                 vm_id: vm_id.to_owned(),
-                from: "running",
-                to: "running",
-            }),
-            VmStatus::Destroyed => Err(BlueprintError::InvalidTransition {
-                vm_id: vm_id.to_owned(),
-                from: "destroyed",
+                from: other.to_string(),
                 to: "running",
             }),
         }
@@ -110,19 +120,9 @@ impl VmProvider for InMemoryVmProvider {
                 record.status = VmStatus::Stopped;
                 Ok(())
             }
-            VmStatus::Created => Err(BlueprintError::InvalidTransition {
+            other => Err(BlueprintError::InvalidTransition {
                 vm_id: vm_id.to_owned(),
-                from: "created",
-                to: "stopped",
-            }),
-            VmStatus::Stopped => Err(BlueprintError::InvalidTransition {
-                vm_id: vm_id.to_owned(),
-                from: "stopped",
-                to: "stopped",
-            }),
-            VmStatus::Destroyed => Err(BlueprintError::InvalidTransition {
-                vm_id: vm_id.to_owned(),
-                from: "destroyed",
+                from: other.to_string(),
                 to: "stopped",
             }),
         }
@@ -137,7 +137,7 @@ impl VmProvider for InMemoryVmProvider {
         if record.status == VmStatus::Destroyed {
             return Err(BlueprintError::InvalidTransition {
                 vm_id: vm_id.to_owned(),
-                from: "destroyed",
+                from: VmStatus::Destroyed.to_string(),
                 to: "snapshot",
             });
         }
@@ -162,7 +162,7 @@ impl VmProvider for InMemoryVmProvider {
         if record.status == VmStatus::Destroyed {
             return Err(BlueprintError::InvalidTransition {
                 vm_id: vm_id.to_owned(),
-                from: "destroyed",
+                from: VmStatus::Destroyed.to_string(),
                 to: "destroyed",
             });
         }
@@ -275,5 +275,63 @@ mod tests {
         provider.destroy_vm("vm-a").expect("first destroy");
         let err = provider.destroy_vm("vm-a").unwrap_err();
         assert!(matches!(err, BlueprintError::InvalidTransition { .. }));
+    }
+
+    #[test]
+    fn start_running_vm_errors() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider.start_vm("vm-a").expect("start");
+        let err = provider.start_vm("vm-a").unwrap_err();
+        assert!(matches!(err, BlueprintError::InvalidTransition { .. }));
+    }
+
+    #[test]
+    fn destroy_running_vm_succeeds() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider.start_vm("vm-a").expect("start");
+        provider.destroy_vm("vm-a").expect("destroy running");
+
+        let vm = provider.get_vm("vm-a").expect("query").expect("exists");
+        assert_eq!(vm.status, VmStatus::Destroyed);
+    }
+
+    #[test]
+    fn snapshot_created_vm_succeeds() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider
+            .snapshot_vm("vm-a", "snap-1")
+            .expect("snapshot before start");
+
+        let snaps = provider
+            .list_snapshots("vm-a")
+            .expect("query")
+            .expect("vm exists");
+        assert_eq!(snaps, vec!["snap-1"]);
+    }
+
+    #[test]
+    fn snapshot_destroyed_vm_errors() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider.destroy_vm("vm-a").expect("destroy");
+        let err = provider.snapshot_vm("vm-a", "snap-1").unwrap_err();
+        assert!(matches!(err, BlueprintError::InvalidTransition { .. }));
+    }
+
+    #[test]
+    fn get_nonexistent_vm_returns_none() {
+        let provider = InMemoryVmProvider::default();
+        let result = provider.get_vm("missing").expect("query");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn list_snapshots_nonexistent_vm_returns_none() {
+        let provider = InMemoryVmProvider::default();
+        let result = provider.list_snapshots("missing").expect("query");
+        assert!(result.is_none());
     }
 }
