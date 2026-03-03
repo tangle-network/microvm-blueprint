@@ -1,6 +1,7 @@
 //! MicroVM Blueprint Library
 //!
 //! Infrastructure-layer blueprint for microVM lifecycle orchestration on Tangle.
+//! Core provider contracts live in `microvm-runtime`.
 //!
 //! ## Job Matrix
 //!
@@ -28,11 +29,13 @@ pub mod query;
 
 pub use errors::{BlueprintError, BlueprintResult};
 pub use jobs::{
-    JOB_CREATE, JOB_DESTROY, JOB_SNAPSHOT, JOB_START, JOB_STOP, create_vm, destroy_vm,
-    snapshot_vm, start_vm, stop_vm,
+    JOB_CREATE, JOB_DESTROY, JOB_SNAPSHOT, JOB_START, JOB_STOP, create_vm, destroy_vm, snapshot_vm,
+    start_vm, stop_vm,
 };
 pub use model::{VmStatus, VmView};
-pub use provider::{InMemoryVmProvider, VmProvider, VmQuery};
+#[cfg(feature = "firecracker")]
+pub use provider::{FirecrackerConfig, FirecrackerVmProvider};
+pub use provider::{InMemoryVmProvider, VmProvider, VmQuery, VmRuntime};
 pub use query::QueryService;
 
 use blueprint_sdk::tangle::TangleLayer;
@@ -40,17 +43,17 @@ use blueprint_sdk::{Job, Router};
 use std::sync::{Arc, OnceLock};
 
 /// Global VM provider instance, initialized by the binary before starting the runner.
-static VM_PROVIDER: OnceLock<Arc<InMemoryVmProvider>> = OnceLock::new();
+static VM_PROVIDER: OnceLock<Arc<dyn VmRuntime>> = OnceLock::new();
 
 /// Initialize the global VM provider. Must be called once before the runner starts.
 ///
 /// # Panics
 ///
 /// Panics if called more than once.
-pub fn init_provider(provider: Arc<InMemoryVmProvider>) {
-    VM_PROVIDER
-        .set(provider)
-        .expect("VM provider already initialized");
+pub fn init_provider(provider: Arc<dyn VmRuntime>) {
+    if VM_PROVIDER.set(provider).is_err() {
+        panic!("VM provider already initialized");
+    }
 }
 
 /// Access the global VM provider.
@@ -58,7 +61,7 @@ pub fn init_provider(provider: Arc<InMemoryVmProvider>) {
 /// # Panics
 ///
 /// Panics if [`init_provider`] has not been called.
-pub fn vm_provider() -> &'static Arc<InMemoryVmProvider> {
+pub fn vm_provider() -> &'static Arc<dyn VmRuntime> {
     VM_PROVIDER
         .get()
         .expect("VM provider not initialized — call init_provider first")

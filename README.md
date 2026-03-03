@@ -9,7 +9,8 @@ Infrastructure-layer blueprint for microVM lifecycle orchestration on Tangle, bu
 
 ## Workspace
 
-- `microvm-blueprint-lib`: reusable library with lifecycle job functions, job router, query traits, and an in-memory provider adapter.
+- `microvm-runtime`: infrastructure runtime contracts and provider adapters (`VmProvider`/`VmQuery`), including in-memory and Firecracker adapter surfaces.
+- `microvm-blueprint-lib`: reusable blueprint job/query wiring that consumes `microvm-runtime` contracts.
 - `microvm-blueprint-bin`: runnable binary wiring the `BlueprintRunner` with Tangle producer/consumer and a read-only query background service.
 
 ## Lifecycle jobs (state-changing only)
@@ -44,6 +45,14 @@ cargo run -p microvm-blueprint-bin
 ```
 
 The binary requires a Tangle environment configuration (see `BlueprintEnvironment::load()`).
+Provider selection is controlled by `MICROVM_PROVIDER`:
+- `in-memory` (default)
+- `firecracker` (requires `--features firecracker`)
+
+Firecracker provider expects host paths (override via env as needed):
+- `MICROVM_FIRECRACKER_BIN`
+- `MICROVM_FIRECRACKER_KERNEL`
+- `MICROVM_FIRECRACKER_ROOTFS`
 
 ## Validate
 

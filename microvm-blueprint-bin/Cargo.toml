@@ -9,6 +9,11 @@ path = "src/main.rs"
 
 [dependencies]
 microvm-blueprint-lib = { path = "../microvm-blueprint-lib" }
+microvm-runtime = { path = "../microvm-runtime" }
 blueprint-sdk = { workspace = true, features = ["std", "tangle"] }
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[features]
+default = []
+firecracker = ["microvm-blueprint-lib/firecracker", "microvm-runtime/firecracker"]
