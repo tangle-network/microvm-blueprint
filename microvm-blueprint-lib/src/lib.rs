@@ -68,7 +68,6 @@ pub fn vm_provider() -> &'static Arc<InMemoryVmProvider> {
 ///
 /// Each lifecycle operation is wired to a job ID with the [`TangleLayer`] for
 /// ABI encoding/decoding of on-chain calldata.
-#[must_use]
 pub fn router() -> Router {
     Router::new()
         .route(JOB_CREATE, create_vm.layer(TangleLayer))

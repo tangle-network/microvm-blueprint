@@ -334,4 +334,49 @@ mod tests {
         let result = provider.list_snapshots("missing").expect("query");
         assert!(result.is_none());
     }
+
+    #[test]
+    fn restart_cycle() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider.start_vm("vm-a").expect("start");
+        provider.stop_vm("vm-a").expect("stop");
+        provider.start_vm("vm-a").expect("restart");
+
+        let vm = provider.get_vm("vm-a").expect("query").expect("exists");
+        assert_eq!(vm.status, VmStatus::Running);
+    }
+
+    #[test]
+    fn multiple_snapshots() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider.start_vm("vm-a").expect("start");
+        provider.snapshot_vm("vm-a", "snap-1").expect("snap 1");
+        provider.snapshot_vm("vm-a", "snap-2").expect("snap 2");
+        provider.snapshot_vm("vm-a", "snap-3").expect("snap 3");
+
+        let snaps = provider
+            .list_snapshots("vm-a")
+            .expect("query")
+            .expect("vm exists");
+        assert_eq!(snaps, vec!["snap-1", "snap-2", "snap-3"]);
+    }
+
+    #[test]
+    fn snapshot_stopped_vm_succeeds() {
+        let provider = InMemoryVmProvider::default();
+        provider.create_vm("vm-a").expect("create");
+        provider.start_vm("vm-a").expect("start");
+        provider.stop_vm("vm-a").expect("stop");
+        provider
+            .snapshot_vm("vm-a", "snap-1")
+            .expect("snapshot while stopped");
+
+        let snaps = provider
+            .list_snapshots("vm-a")
+            .expect("query")
+            .expect("vm exists");
+        assert_eq!(snaps, vec!["snap-1"]);
+    }
 }

@@ -42,3 +42,16 @@ pub struct VmView {
     /// Names of snapshots captured for this VM, in creation order.
     pub snapshots: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vm_status_display() {
+        assert_eq!(VmStatus::Created.to_string(), "created");
+        assert_eq!(VmStatus::Running.to_string(), "running");
+        assert_eq!(VmStatus::Stopped.to_string(), "stopped");
+        assert_eq!(VmStatus::Destroyed.to_string(), "destroyed");
+    }
+}
