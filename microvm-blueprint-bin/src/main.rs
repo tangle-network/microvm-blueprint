@@ -1,153 +1,85 @@
-use std::{net::SocketAddr, time::Duration};
+//! MicroVM Blueprint Runner
+//!
+//! Main entry point wiring the lifecycle jobs and query service onto the
+//! Tangle EVM producer/consumer via BlueprintRunner.
 
-use axum::{
-    extract::{Path, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    routing::get,
-    Json, Router,
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use blueprint_sdk::contexts::tangle::TangleClientContext;
+use blueprint_sdk::runner::BlueprintRunner;
+use blueprint_sdk::runner::config::BlueprintEnvironment;
+use blueprint_sdk::runner::tangle::config::TangleConfig;
+use blueprint_sdk::tangle::{TangleConsumer, TangleProducer};
+use blueprint_sdk::{error, info};
+
+use microvm_blueprint_lib::{
+    init_provider, router, InMemoryVmProvider, QueryService, JOB_CREATE, JOB_DESTROY,
+    JOB_SNAPSHOT, JOB_START, JOB_STOP,
 };
-use microvm_blueprint_lib::{JobRunner, LifecycleJob, MockVmProvider, VmQuery};
-use serde::Serialize;
-use tokio::{signal, sync::mpsc, time::interval};
 
-#[derive(Clone)]
-struct AppState {
-    query: MockVmProvider,
-}
-
-#[derive(Debug, Serialize)]
-struct ErrorBody {
-    error: String,
+/// Initialize tracing from RUST_LOG env var.
+fn setup_log() {
+    use tracing_subscriber::{fmt, EnvFilter};
+    let filter = EnvFilter::from_default_env();
+    fmt().with_env_filter(filter).init();
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let provider = MockVmProvider::default();
-    let runner = JobRunner::new(provider.clone());
-    let (job_tx, mut job_rx) = mpsc::channel::<LifecycleJob>(64);
+#[allow(clippy::result_large_err)]
+async fn main() -> Result<(), blueprint_sdk::Error> {
+    setup_log();
 
-    let runner_task = tokio::spawn({
-        let runner = runner.clone();
-        async move {
-            while let Some(job) = job_rx.recv().await {
-                if let Err(error) = runner.execute(job.clone()) {
-                    eprintln!("lifecycle job failed ({job:?}): {error}");
-                }
-            }
-        }
-    });
+    // Initialize the in-memory VM provider.
+    // Swap for a hypervisor-backed adapter (Firecracker, Cloud Hypervisor) in production.
+    let provider = Arc::new(InMemoryVmProvider::default());
+    init_provider(provider);
 
-    enqueue_bootstrap_jobs(&job_tx).await;
+    info!("Starting microvm-blueprint");
 
-    tokio::spawn({
-        let query = provider.clone();
-        async move {
-            let mut ticker = interval(Duration::from_secs(10));
-            loop {
-                ticker.tick().await;
-                match query.list_vms() {
-                    Ok(vms) => println!("query-monitor: {} vm(s)", vms.len()),
-                    Err(error) => eprintln!("query-monitor failed: {error}"),
-                }
-            }
-        }
-    });
+    let env = BlueprintEnvironment::load()?;
 
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/vms", get(list_vms))
-        .route("/vms/{vm_id}", get(get_vm))
-        .route("/vms/{vm_id}/snapshots", get(list_snapshots))
-        .with_state(AppState {
-            query: provider.clone(),
-        });
+    let tangle_client = env
+        .tangle_client()
+        .await
+        .map_err(|e| blueprint_sdk::Error::Other(e.to_string()))?;
 
-    let addr: SocketAddr = "127.0.0.1:3000".parse()?;
-    println!("query service listening on http://{addr}");
+    let service_id = env
+        .protocol_settings
+        .tangle()
+        .map_err(|e| blueprint_sdk::Error::Other(e.to_string()))?
+        .service_id
+        .ok_or_else(|| blueprint_sdk::Error::Other("No service ID configured".to_string()))?;
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    let tangle_producer = TangleProducer::new(tangle_client.clone(), service_id);
+    let tangle_consumer = TangleConsumer::new(tangle_client);
 
-    drop(job_tx);
-    let _ = runner_task.await;
+    let tangle_config = TangleConfig::default();
+
+    info!("Connected to Tangle. Service ID: {service_id}");
+    info!("Registered lifecycle jobs:");
+    info!("  Job {JOB_CREATE}: create_vm");
+    info!("  Job {JOB_START}: start_vm");
+    info!("  Job {JOB_STOP}: stop_vm");
+    info!("  Job {JOB_SNAPSHOT}: snapshot_vm");
+    info!("  Job {JOB_DESTROY}: destroy_vm");
+
+    let query_addr: SocketAddr = "127.0.0.1:3000".parse().expect("valid address");
+
+    let result = BlueprintRunner::builder(tangle_config, env)
+        .router(router())
+        .background_service(QueryService::new(query_addr))
+        .producer(tangle_producer)
+        .consumer(tangle_consumer)
+        .with_shutdown_handler(async {
+            info!("Shutting down microvm-blueprint");
+        })
+        .run()
+        .await;
+
+    if let Err(e) = result {
+        error!("Runner failed: {e:?}");
+    }
 
     Ok(())
-}
-
-async fn enqueue_bootstrap_jobs(job_tx: &mpsc::Sender<LifecycleJob>) {
-    let jobs = [
-        LifecycleJob::Create {
-            vm_id: "demo-vm".to_owned(),
-        },
-        LifecycleJob::Start {
-            vm_id: "demo-vm".to_owned(),
-        },
-        LifecycleJob::Snapshot {
-            vm_id: "demo-vm".to_owned(),
-            snapshot_id: "initial".to_owned(),
-        },
-    ];
-
-    for job in jobs {
-        if job_tx.send(job).await.is_err() {
-            eprintln!("job queue was closed before bootstrap jobs were enqueued");
-            break;
-        }
-    }
-}
-
-async fn health() -> &'static str {
-    "ok"
-}
-
-async fn list_vms(State(state): State<AppState>) -> Response {
-    match state.query.list_vms() {
-        Ok(vms) => Json(vms).into_response(),
-        Err(error) => internal_error(error.to_string()),
-    }
-}
-
-async fn get_vm(Path(vm_id): Path<String>, State(state): State<AppState>) -> Response {
-    match state.query.get_vm(&vm_id) {
-        Ok(Some(vm)) => Json(vm).into_response(),
-        Ok(None) => not_found(format!("vm '{vm_id}' not found")),
-        Err(error) => internal_error(error.to_string()),
-    }
-}
-
-async fn list_snapshots(Path(vm_id): Path<String>, State(state): State<AppState>) -> Response {
-    match state.query.list_snapshots(&vm_id) {
-        Ok(Some(snapshots)) => Json(snapshots).into_response(),
-        Ok(None) => not_found(format!("vm '{vm_id}' not found")),
-        Err(error) => internal_error(error.to_string()),
-    }
-}
-
-fn not_found(message: String) -> Response {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ErrorBody {
-            error: message,
-        }),
-    )
-        .into_response()
-}
-
-fn internal_error(message: String) -> Response {
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorBody {
-            error: message,
-        }),
-    )
-        .into_response()
-}
-
-async fn shutdown_signal() {
-    if signal::ctrl_c().await.is_ok() {
-        println!("shutdown signal received");
-    }
 }
