@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 blueprint-sdk = { workspace = true, features = ["std", "tangle", "macros"] }
-microvm-runtime = { path = "../microvm-runtime" }
+microvm-runtime = { workspace = true }
 axum = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }

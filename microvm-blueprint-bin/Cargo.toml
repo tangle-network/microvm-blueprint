@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 microvm-blueprint-lib = { path = "../microvm-blueprint-lib" }
-microvm-runtime = { path = "../microvm-runtime" }
+microvm-runtime = { workspace = true }
 blueprint-sdk = { workspace = true, features = ["std", "tangle"] }
 tokio = { workspace = true }
 tracing-subscriber = { workspace = true }
