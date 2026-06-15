@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-blueprint-sdk = { version = "0.2.0-alpha.6", default-features = false }
+blueprint-sdk = { version = "0.2.0-alpha.9", default-features = false }
 microvm-runtime = { version = "0.1.0-alpha.1", default-features = false }
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
