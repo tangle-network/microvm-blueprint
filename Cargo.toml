@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-blueprint-sdk = { git = "https://github.com/tangle-network/blueprint", rev = "edf64b4f60df4f51fd27ce39ea754bcbc0b3fd54", package = "blueprint-sdk", default-features = false }
+blueprint-sdk = { git = "https://github.com/tangle-network/blueprint", rev = "be8bd303260d3b1e1df6624eeac92b3ce1f40c38", package = "blueprint-sdk", default-features = false }
 microvm-runtime = { version = "0.1.0-alpha.1", default-features = false }
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
